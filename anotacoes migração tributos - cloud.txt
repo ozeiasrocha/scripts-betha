@@ -1,0 +1,48 @@
+--CRIAR A ATIVIDADE XXXX - OUTROS SERVIÇOS
+
+update bethadba.itens_nota set i_atividades=1709 where i_atividades in (select i_atividades from bethadba.ramos_atividades where descricao='null');
+delete bethadba.economicos_atividades where descricao_atividade='null';
+delete bethadba.opcoes_bca where i_atividades in (select i_atividades from bethadba.ramos_atividades where descricao='null');
+delete bethadba.ramos_atividades where descricao='null';
+commit;
+
+call bethadba.dbp_conn_gera(1,2022,301);
+call bethadba.pg_habilitartriggers('off');
+update bethadba.atos set lei_arrecadacao=num_ato where lei_arrecadacao is null; commit;
+call bethadba.pg_habilitartriggers('on');
+
+update bethadba.ramos_atividades set i_lista_servicos='99.99' where classif='S'  and tipo='S' and i_lista_servicos is null;
+commit;
+
+update BETHADBA.itens_nota key join bethadba.ramos_atividades set classif='S' where classif<>'S';commit;
+
+update bethadba.ramos_atividades set i_lista_servicos='99.99' where i_lista_servicos is null and classif='S' and tipo='S'; commit;
+
+update bethadba.economicos e set e.i_bairros=(select top 1 i_bairros from bethadba.bairros where nome=nome_bairro ) where e.i_bairros is null and e.nome_bairro is not null;
+commit;
+
+update bethadba.economicos e set e.nome_bairro=null  where e.i_bairros is null and e.nome_bairro is not null;commit; //limpa os registros com bairros nao encontrados
+
+
+update bethadba.pessoas_enderecos set i_bairros=(select top 1 i_bairros from bethadba.bairros where nome=nome_bairro), nome_bairro=null where i_bairros is null and nome_bairro is not null; commit
+update bethadba.pessoas_enderecos set i_cidades=(select top 1 i_cidades from bethadba.cidades where nome=trim(nome_cidade_conv)), nome_cidade_conv=null  where i_cidades is null and trim(nome_cidade_conv) is not null;
+update bethadba.economicos set i_cidades=1200203, nome_cidade=null where nome_cidade is not null;
+
+
+call bethadba.pg_habilitartriggers('off');
+update bethadba.dividas set data_fato=data_insc, data_vcto=data_insc  where   dividas.i_dividas in (3010, 36522, 36525, 36643);
+call bethadba.pg_habilitartriggers('on');
+
+call bethadba.pg_habilitartriggers('off');
+update bethadba.dividas key join bethadba.rec_dividas set dividas.i_receitas=left(rec_dividas.i_receitas, length(rec_dividas.i_receitas)-2)||'00' where  dividas.i_receitas<>left(rec_dividas.i_receitas, length(rec_dividas.i_receitas)-2)||'00' ;
+
+update  bethadba.pessoas_enderecos set i_cidades=1200203 where i_cidades is null;commit; -- 1200203
+
+call bethadba.pg_habilitartriggers('on');
+
+
+CREATE TABLE cnae (CNAE varchar(10),Descricao_CNAE varchar(300),Item_Lista varchar(5),Descricao_Item_Lista varchar(500));
+LOAD TABLE cnae FROM 'E:\Dados\tabela_cnae.csv' DELIMITED BY ';' skip 1;
+
+
+

@@ -1,0 +1,375 @@
+/* -- Fórmula de Lançamento*/
+%%	w_codigo        ---> Código de referência que está sendo calculado (Imóvel / Econômico / Pedido / Melhoria / etc)
+%%	w_refer         ---> Código do imóvel no caso de Contribuição de Melhoria ou Código da Publicidade
+%%	w_parc_ini      ---> Nº da parcela Inicial 
+%%	w_parc_fin      ---> Nº da parcela Final 
+%%	w_receita       ---> Passa a Receita Principal
+%%	w_ano           ---> Passa o ano que será Calculado
+%%	w_config        ---> Configuração informada na Janela de Calculo
+%%	w_npar          ---> Passa o Número de Parcela a serem geradas, caso não tenha Parâmetros das Parcelas
+%%	w_moeda         ---> Passa o Código da moeda
+%%  w_venc_ini      ---> Vcto Inicial
+%%  w_dias          ---> dias vcto
+%%  w_antecip       ---> Antecipa
+%%  w_simula        ---> Simulado
+%%  w_notifica      ---> Será notificado após a geração
+%%  w_complementa   ---> Complementar
+%%  w_unidade       ---> Unidade
+%%  w_atos          ---> Passa o código do Lei/Ato
+%%  ********************  OBSERVAÇÃO   ********************
+%%  Não pode ser utilizado o comando RETURN nas fórmulas deverá ser utilizado a procedure bethadba.dbp_raiserror 
+%%  da seguinte forma para banco na versão 5 call bethadba.dbp_raiserror('1 parâmetro mensagem desejada', '2 parâmetro nulo')   
+%%  da seguinte forma para banco na versão 7 call bethadba.dbp_raiserror('1 parâmetro nulo', '2 parâmetro mensagem desejada')  
+
+
+DECLARE area_terreno DECIMAL(15,4);
+DECLARE area_construcao DECIMAL(15,4);
+DECLARE Coleta_lixo INTEGER;
+DECLARE zona_lixo INTEGER;
+DECLARE classif INTEGER;
+DECLARE pavimentacao INTEGER;
+DECLARE m2_terreno DECIMAL(15,4);
+DECLARE m2_construcao DECIMAL(15,4); 
+DECLARE vvt DECIMAL(15,4);
+DECLARE vvc DECIMAL(15,4);
+DECLARE vvi DECIMAL(15,4);
+DECLARE aliq DECIMAL(15,4); 
+DECLARE iptu DECIMAL(15,4); 
+DECLARE tsu  DECIMAL(15,4);        
+DECLARE ufm  DECIMAL(15,4);
+DECLARE isencao_taxas DECIMAL(15,4);
+DECLARE isencao_imposto DECIMAL (15,4); 
+DECLARE tarifa DECIMAL(15,2);  
+DECLARE tipo_imovel INTEGER;
+DECLARE estrutura INTEGER; 
+DECLARE qual_constr INTEGER;      
+DECLARE quadra CHAR(1);
+DECLARE situacao INTEGER;  
+
+%% Unidade Fiscal no Municipio (UFM)
+SET ufm = dbf_fc_valor_idx(2,today());                                       
+
+%% quadra
+SET quadra = dbf_retira_inteiros_de_alfa((SELECT campo3 FROM bethadba.imoveis WHERE i_imoveis=w_codigo));                                   
+IF(quadra NOT IN ('A','B','C','D','I','J','H','G','L','M','T','K','E','F','N','S','O','W','P','Q','R','U','V','X','Z')) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A QUADRA DE ACORDO COM A PLANTA GENÉRICA!');
+END IF;
+%%MESSAGE 'Quadra-> '||quadra type warning TO client;                                  
+
+%% area do terreno
+SET area_terreno=dbf_fc_retbci_valor(w_codigo,299,dbf_ano_base(w_codigo,w_ano,299,'opcoes_bci'));
+PRINT string('area_terreno: ',area_terreno);  
+IF(area_terreno IS NULL) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A ÁREA DO TERRENO NO BCI 299');
+END IF;
+  
+%% area da construção  
+SET area_construcao=dbf_fc_retbci_valor(w_codigo,1399,dbf_ano_base(w_codigo,w_ano,1399,'opcoes_bci'));
+ PRINT string('area_construcao: ',area_construcao);
+IF (isnull(area_construcao, 0)=0  AND w_unidade>0) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A ÁREA DA CONSTRUÇÃO NO BCI 1399');
+END IF;
+                      
+%% padrao da construção (A B C)    
+SET qual_constr= dbf_fc_existe_opc_bci(w_codigo,1700,dbf_ano_base(w_codigo,w_ano,1700,'opcoes_bci'));  
+ PRINT string('qual_constr: ',qual_constr);
+IF(qual_constr IS NULL) AND (w_unidade>0) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR O TIPO DA CONSTRUÇÃO NO BCI 1700');
+END IF;
+  
+%% situacao  
+SET situacao= dbf_fc_existe_opc_bci(w_codigo,2800,dbf_ano_base(w_codigo,w_ano,2800,'opcoes_bci'));  
+ PRINT string('situacao: ',situacao);
+IF(situacao IS NULL) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR SITUAÇÃO NO BCI 2800');
+END IF;
+
+%% estrutura  
+SET estrutura = dbf_fc_existe_opc_bci(w_codigo,1600,dbf_ano_base(w_codigo,w_ano,1600,'opcoes_bci'));  
+ PRINT string('estrutura: ',estrutura);
+IF(estrutura IS NULL) AND (w_unidade>0) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR O TIPO DE ESTRUTURA NO BCI 1600');
+END IF; 
+  
+%% Tipo de imovel
+SET tipo_imovel = dbf_fc_existe_opc_bci(w_codigo,1500,dbf_ano_base(w_codigo,w_ano,1500,'opcoes_bci'));
+PRINT string('tipo_imovel: ',tipo_imovel);   
+%%MESSAGE 'tipo imovel-> '||tipo_imovel type warning TO client;
+IF(tipo_imovel IS NULL) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR O TIPO DO IMÓVEL NO BCI 1500');
+END IF;      
+          
+%% coleta de lixo
+SET coleta_lixo=dbf_fc_existe_opc_bci(w_codigo,1800,dbf_ano_base(w_codigo,w_ano,1800,'opcoes_bci'));  
+ PRINT string('Coleta_lixo: ',Coleta_lixo);
+SET zona_lixo=dbf_fc_existe_opc_bci(w_codigo,6000,dbf_ano_base(w_codigo,w_ano,6000,'opcoes_bci'));  
+ PRINT string('Zona Coleta_lixo: ',zona_lixo);
+IF(coleta_lixo IS NULL) AND (w_unidade>0) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A COLETA DE LIXO NO BCI 1800');
+END IF;   
+IF(zona_lixo IS NULL) AND (w_unidade>0) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A ZONA DE COLETA DE LIXO NO BCI 6000');
+END IF;   
+%%Estipula o valor do M² de terreno
+SET m2_terreno=60;
+
+%%Estipula o valor do M² da construção
+
+IF quadra IN ('A','B','C','I','J','H','G','L','M','T','K') THEN 
+   IF qual_constr = 1701 THEN      
+       SET m2_construcao=70;   
+         SET aliq=0.0055;
+   ELSEIF qual_constr = 1702 THEN
+       SET m2_construcao=20;        
+       SET aliq=0.0046;
+   ELSEIF qual_constr = 1703 THEN
+       SET m2_construcao=10;
+       SET aliq=0.0034;
+   ELSE
+       SET aliq=0.0115;
+   END IF;    
+   IF tipo_imovel <> 1501 THEN    
+         SET aliq = 0.0069;
+   END IF;       
+   IF w_unidade=0 THEN
+      SET aliq=0.0115;
+   END IF;    
+ELSEIF  quadra IN ('E','F','N','S','O','W') THEN    
+   IF qual_constr = 1701 THEN      
+       SET m2_construcao=55;         
+       SET aliq=0.0037;
+   ELSEIF qual_constr = 1702 THEN
+       SET m2_construcao=35;        
+       SET aliq=0.0042;
+   ELSEIF qual_constr = 1703 THEN
+       SET m2_construcao=23;
+       SET aliq=0.0021;
+   ELSE
+       SET aliq=0.0095;
+   END IF;        
+   IF tipo_imovel <> 1501 THEN    
+         SET aliq = 0.0037;
+   END IF;         
+   IF w_unidade=0 THEN
+      SET aliq=0.0095;
+   END IF;    
+ELSEIF  quadra IN ('D','P','Q','R','U','V','X','Z') THEN 
+   IF qual_constr = 1701 THEN      
+       SET m2_construcao=30;         
+       SET aliq=0.0034;
+   ELSEIF qual_constr = 1702 THEN
+       SET m2_construcao=20;        
+       SET aliq=0.0015;
+   ELSEIF qual_constr = 1703 THEN
+       SET m2_construcao=11;
+       SET aliq=0.0011;
+   ELSE
+       SET aliq=0.0041;
+   END IF;        
+   IF tipo_imovel <> 1501 THEN    
+         SET aliq = 0.0028;
+   END IF;
+   IF w_unidade=0 THEN
+      SET aliq=0.0041;
+   END IF;         
+END IF;    
+PRINT string('m2_construcao: ',m2_construcao);  
+%%MESSAGE 'm2_construcao-> '||m2_construcao type warning TO client; 
+   
+%%calcula o valor venal do terreno
+SET vvt= area_terreno* (IF situacao=2801 THEN 1.20 ELSE 0.90 endif) *  m2_terreno;    
+PRINT string('vvt: ',vvt);        
+%%MESSAGE 'vvt-> '||vvt type warning TO client;                      
+PRINT string('aliq: ',aliq);
+%%MESSAGE 'aliq-> '||aliq type warning TO client;     
+
+%%calcula o valor venal da construção
+SET vvc= area_construcao* (IF w_unidade>0 THEN m2_construcao ELSE 0 endif);     
+%%MESSAGE 'vvc-> '||vvc type warning TO client;   
+
+%%calcula o valor venal do imovel
+SET vvi= vvt + isnull(vvc,0);
+%%MESSAGE 'vvi-> '||vvi type warning TO client;   
+
+%%Calcula o imposto
+SET iptu=vvi*aliq;
+PRINT string('iptu: ',iptu);  
+
+IF qual_constr = 1704 THEN      
+SET iptu=15.90;  
+END IF; 
+%%MESSAGE 'iptu-> '||iptu type warning TO client; 
+
+
+%%Calcula o valor dos serviços urbanos
+
+IF     coleta_lixo = 1801 AND zona_lixo = 6001 THEN     %% residencial regular A
+  SET tsu = 0.75;
+ELSEIF coleta_lixo = 1801 AND zona_lixo = 6002 THEN     %% residencial regular B
+  SET tsu = 0.50;
+ELSEIF coleta_lixo = 1802 AND zona_lixo = 6001 THEN     %% residencial   medio A
+  SET tsu = 1.25;
+ELSEIF coleta_lixo = 1802 AND zona_lixo = 6002 THEN     %% residencial   medio B
+  SET tsu = 1;
+ELSEIF coleta_lixo = 1803 AND zona_lixo = 6001 THEN     %% residencial elevado A
+  SET tsu = 2;
+ELSEIF coleta_lixo = 1803 AND zona_lixo = 6002 THEN     %% residencial elevado B
+  SET tsu = 1.5;
+ELSEIF coleta_lixo = 1804 AND zona_lixo = 6001 THEN     %% residencial especial A
+  SET tsu = 2.5;
+ELSEIF coleta_lixo = 1804 AND zona_lixo = 6002 THEN     %% residencial especial B
+  SET tsu = 2;
+ELSEIF coleta_lixo = 1805 AND zona_lixo = 6001 THEN     %% residencial multifamiliar A
+  SET tsu = 1;
+ELSEIF coleta_lixo = 1805 AND zona_lixo = 6002 THEN     %% residencial multifamiliar B
+  SET tsu = 0.75;                                                                     
+  
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6001 AND area_terreno <=  60 THEN  %%Comercial
+  SET tsu = 2;
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6002 AND area_terreno <=  60 THEN
+  SET tsu = 1.5;
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6001 AND area_terreno >  60 AND area_terreno <= 150 THEN     
+  SET tsu = 3.5;                                                                                       
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6002 AND area_terreno >  60 AND area_terreno <= 150 THEN
+  SET tsu = 1.75;   
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6001 AND area_terreno > 150 AND area_terreno <= 350 THEN
+  SET tsu = 5;      
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6002 AND area_terreno > 150 AND area_terreno <= 350 THEN
+  SET tsu = 3;      
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6001 AND area_terreno > 350 AND area_terreno <= 700 THEN
+  SET tsu = 10;      
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6002 AND area_terreno > 350 AND area_terreno <= 700 THEN
+  SET tsu = 6;    
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6001 AND area_terreno > 700 AND area_terreno <= 1200 THEN
+  SET tsu = 15;      
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6002 AND area_terreno > 7000 AND area_terreno <= 1200 THEN
+  SET tsu = 7.5;          
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6001 AND area_terreno > 12000 THEN
+  SET tsu = 17.5;            
+ELSEIF coleta_lixo = 1806 AND zona_lixo = 6002 AND area_terreno > 12000 THEN
+  SET tsu = 8.75;  
+            
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6001 AND area_terreno <=  100 THEN    %% Industria
+  SET tsu = 4;
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6002 AND area_terreno <=  100 THEN
+  SET tsu = 2;
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6001 AND area_terreno > 100 AND area_terreno <= 350 THEN
+  SET tsu = 8;      
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6001 AND area_terreno > 100 AND area_terreno <= 350 THEN
+  SET tsu = 3;                                                 
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6001 AND area_terreno > 350 AND area_terreno <= 700 THEN
+  SET tsu = 10;      
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6001 AND area_terreno > 350 AND area_terreno <= 700 THEN
+  SET tsu = 5;   
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6001 AND area_terreno > 700 THEN
+  SET tsu = 15;            
+ELSEIF coleta_lixo = 1807 AND zona_lixo = 6002 AND area_terreno > 700 THEN
+  SET tsu = 8;  
+
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6001 AND area_terreno <=  100 THEN   %% Industria  nociva
+  SET tsu = 16;
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6002 AND area_terreno <=  100 THEN
+  SET tsu = 8;
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6001 AND area_terreno > 100 AND area_terreno <= 350 THEN
+  SET tsu = 24;      
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6001 AND area_terreno > 100 AND area_terreno <= 350 THEN
+  SET tsu = 12;                                                 
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6001 AND area_terreno > 350 AND area_terreno <= 700 THEN
+  SET tsu = 32;      
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6001 AND area_terreno > 350 AND area_terreno <= 700 THEN
+  SET tsu = 16;   
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6001 AND area_terreno > 700 THEN
+  SET tsu = 40;            
+ELSEIF coleta_lixo = 1808 AND zona_lixo = 6002 AND area_terreno > 700 THEN  
+  SET tsu = 75;      
+  
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6001 AND area_terreno <=  60 THEN   %% Prestadores de serviço
+  SET tsu = 3;
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6002 AND area_terreno <=  60 THEN
+  SET tsu = 1.5;
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6001 AND area_terreno >  60 AND area_terreno <= 150 THEN    
+  SET tsu = 5.5;                                                                                      
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6002 AND area_terreno > 60 AND area_terreno  <= 150 THEN
+  SET tsu = 2.75;     
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6001 AND area_terreno > 150 AND area_terreno <= 350 THEN
+  SET tsu = 10;      
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6002 AND area_terreno > 150 AND area_terreno <= 350 THEN
+  SET tsu = 5;      
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6001 AND area_terreno > 350  THEN
+  SET tsu = 12.5;      
+ELSEIF coleta_lixo = 1809 AND zona_lixo = 6002 AND area_terreno > 350  THEN
+  SET tsu = 6.25;    
+  
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6001 AND area_terreno <=  150 THEN    %%Entidades
+  SET tsu = 1;
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6002 AND area_terreno <=  150 THEN
+  SET tsu = 0.5;
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6001 AND area_terreno > 150 AND area_terreno <= 400 THEN
+  SET tsu = 2.5;      
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6001 AND area_terreno > 150 AND area_terreno <= 400 THEN
+  SET tsu = 1.5;                                                 
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6001 AND area_terreno > 400 AND area_terreno <= 800 THEN
+  SET tsu = 4;      
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6001 AND area_terreno > 400 AND area_terreno <= 800 THEN
+  SET tsu = 2.75;   
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6001 AND area_terreno > 800 THEN
+  SET tsu = 6;            
+ELSEIF coleta_lixo = 1810 AND zona_lixo = 6002 AND area_terreno > 800 THEN  
+  SET tsu = 4;       
+  
+ELSEIF coleta_lixo = 1811 AND zona_lixo = 6001 AND area_terreno <=  150 THEN    %% Institucional
+  SET tsu = 2;
+ELSEIF coleta_lixo = 1811 AND zona_lixo = 6002 AND area_terreno <=  150 THEN
+  SET tsu = 0.5;
+ELSEIF coleta_lixo = 1811 AND zona_lixo = 6001 AND area_terreno > 150 AND area_terreno <= 500 THEN
+  SET tsu = 4;      
+ELSEIF coleta_lixo = 1811 AND zona_lixo = 6001 AND area_terreno > 150 AND area_terreno <= 500 THEN
+  SET tsu = 2.25;                                                 
+ELSEIF coleta_lixo = 1811 AND zona_lixo = 6001 AND area_terreno > 500 THEN
+  SET tsu = 8;            
+ELSEIF coleta_lixo = 1811 AND zona_lixo = 6002 AND area_terreno > 700 THEN  
+  SET tsu = 4;                                                              
+  
+ELSEIF coleta_lixo = 1812 AND zona_lixo = 6001 THEN    %%Drogarias
+  SET tsu = 5;  
+ELSEIF coleta_lixo = 1812 AND zona_lixo = 6002 THEN
+  SET tsu = 2.5;  
+       
+ELSEIF coleta_lixo = 1813 AND zona_lixo = 6001 THEN    %%Clinicas
+  SET tsu = 7.5;  
+ELSEIF coleta_lixo = 1813 AND zona_lixo = 6002 THEN
+  SET tsu = 3.75;  
+  
+ELSEIF coleta_lixo = 1814 AND zona_lixo = 6001 THEN    %% Hospitais
+  SET tsu = 10;  
+ELSEIF coleta_lixo = 1814 AND zona_lixo = 6002 THEN
+  SET tsu = 5;
+  
+ELSEIF coleta_lixo >= 1815 AND zona_lixo = 6001 THEN    %% Outros
+  SET tsu = 5;  
+ELSEIF coleta_lixo >= 1815 AND zona_lixo = 6002 THEN
+  SET tsu = 2.5;  
+
+END IF;       
+SET tsu= tsu * ufm;
+%%MESSAGE string('tsu: ',tsu) type warning TO client; 
+ 
+%%Verifica isenção
+
+IF dbf_fc_existe_opc_bci(w_codigo,2500,dbf_ano_base(w_codigo,w_ano,2500,'opcoes_bci'))>2501 THEN
+  SET isencao_imposto=1;
+END IF;   
+    
+
+%%Criando as receitas                  
+SET ret=dbf_fc_cria_rec(101,iptu,1,isencao_imposto); 
+SET ret=dbf_fc_cria_rec(102,tsu,1,isencao_taxas); 
+%%SET ret=dbf_fc_cria_rec(103,tarifa,2,isencao_taxas);
+
+SET ret=dbf_fc_cria_bci_valor(w_codigo,799,vvt,w_ano);
+SET ret=dbf_fc_cria_bci_valor(w_codigo,899,vvc,w_ano);
+SET ret=dbf_fc_cria_bci_valor(w_codigo,999,vvi,w_ano);
+SET ret=dbf_fc_cria_bci_valor(w_codigo,1099,m2_terreno,w_ano);
+SET ret=dbf_fc_cria_bci_valor(w_codigo,1199,m2_construcao,w_ano); 
+SET ret=dbf_fc_cria_bci_valor(w_codigo,5499,aliq * 100,w_ano);
+SET ret=dbf_fc_cria_bci_valor(w_codigo,5599,iptu,w_ano);

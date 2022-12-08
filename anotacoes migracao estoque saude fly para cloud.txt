@@ -1,0 +1,24 @@
+passo 1: definir data da virada
+
+passo 2: criar tarefa de solicitacao da carga inicial dos dados do fly pro cloud
+	entidade: codigo + database
+	municipio:
+	modulo: estoque
+	previsão da virada: (min. 20 dias de antecedendia)
+
+passo 3: revisao dos cadastros migrados na carga inicial
+	revisar o cadastro de materiais (principio ativo, tarja e receita)
+	revisao o cadastro de grupos e subgrupos
+	revisar o cadastro de fabricantes
+	revisar o quadro de cobertura vacinal
+	
+passo 4: viarada realizada - carga final
+	realizar conferencia de estoque
+	exportar dados para o BNDASAF no fly
+	expportar fichar de vacinação para o e-SUS no fly
+	ativar parametro do estoque inicial para cloud
+	remover os acessos das rotinas no fly
+	iniciar os trabalhos no estoque e vacina
+		exportação BNDASAF e fichas de vacinacao passam a ser feitas no cloud
+		
+

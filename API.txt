@@ -1,0 +1,5 @@
+HTTP Status Codes
+200 (OK), o 201 (created), o 204 (no content), o 404 (not found), o 400 (bad request), e 500 (internal server error).
+https://www.restapitutorial.com/httpstatuscodes.html
+Como padrão, os códigos de sucesso tem o prefixo 20x, os de redirecionamento 30x, os de erro do cliente 40x e os de erro de servidor 50x.
+

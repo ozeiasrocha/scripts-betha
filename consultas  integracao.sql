@@ -1,0 +1,1 @@
+select * from bethadba.mensagens_integ where identificacao = 'i_num_baixas'

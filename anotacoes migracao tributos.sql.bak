@@ -1,0 +1,6 @@
+call bethadba.dbp_conn_gera(1,2022,301);
+update bethadba.economicos_atividades a key join bethadba.ramos_atividades set i_lista_servicos=null
+where  i_lista_servicos in (select i_lista_servicos from bethadba.economicos_atividades a2 key join bethadba.ramos_atividades r2 group by i_economicos, i_lista_servicos having count(*)>1 and a2.i_economicos=a.i_economicos);
+commit;
+
+

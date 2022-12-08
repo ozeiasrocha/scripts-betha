@@ -1,0 +1,293 @@
+--imagens_docs, registros_integ, versoes_arqs, arqjoblets, relatorios, controle_migracao
+-- registro_ocor - 
+situação :  (1 - Inconsistência, 2 - advertência, 3 - Sucesso, 4 - Pendente de retorno)
+resolvido:  (1 - Não, 2 - Sim)
+
+-- lotes - status: (1 - AGUARDANDO_EXECUCAO, 2 - EXECUTANDO, 3 - EXECUTADO, 4 - EXECUTADO_PARCIALMENTE, 5 - ERRO)
+
+
+-- logradouros
+ajustar dbp_conn_gera (ajusteLogardouros)
+
+--entidade - erro no endereço
+ajustar cadastro da entidade - informacoes complementares (tipo de entidade, responsvel eSocial)
+tipo de administracao (natureza juridica, valor subteto)
+
+
+-- tipos de afastamentos com descricao duplicada 
+delete bethadba.tipos_afast where i_tipos_afast not in (select i_tipos_afast from bethadba.afastamentos)
+and descricao in (select descricao from  (select descricao, count(*) x from bethadba.tipos_afast group by descricao having x>1) x)
+and i_tipos_afast not in (select i_tipos_afast from bethadba.canc_ferias_afast)
+and i_tipos_afast not in (select i_tipos_afast from bethadba.motivos_apos);
+
+alter procedure descricaoTiposAfast()
+begin
+ ooLoop: for ll as lanctos dynamic scroll cursor for
+ select descricao as w_desc, count(*) x from bethadba.tipos_afast group by descricao having x>1
+ do 
+  message 'tipo afast: '||w_desc to client;
+  update bethadba.tipos_afast set descricao=descricao+'_2' where descricao=w_desc and i_tipos_afast=(select max(i_tipos_afast) from bethadba.tipos_afast where descricao=w_desc);
+ end for;
+end;
+call descricaoTiposAfast;
+
+-- informar categoria e-social nos motivos de rescisoes/aposentadorias
+-- informar categoria do motivo de alteracao salarial
+
+--atos sem natureza
+call bethadba.dbp_conn_gera(2,2022,300);
+call bethadba.pg_habilitartriggers('off');
+update  bethadba.atos set i_natureza_texto_juridico=1;commit;
+call bethadba.pg_habilitartriggers('on');
+
+--organograma (descricao config. no maximo 30 caracteres)
+
+
+
+-- pessoas fisicas (limpar ocorrencias duplica pessoas)
+-- preencher data de nascimento 
+
+call bethadba.dbp_conn_gera(2,2022,300);
+update bethadba.pessoas_fisicas set rg=null where rg=0 and orgao_emis_rg is null;
+update bethadba.pessoas_fisicas pf left join bethadba.dependentes d on pf.i_pessoas=d.i_dependentes set dt_nascimento='2020-01-01' where pf.dt_nascimento is null and pf.i_pessoas in (select i_dependentes from bethadba.dependentes);
+update bethadba.pessoas_fisicas set dt_nascimento='2000-01-01' where dt_nascimento is null;
+update bethadba.hist_pessoas_fis set rg=null where rg='0';
+commit;
+call bethadba.pg_habilitartriggers('off');
+update bethadba.dependentes set dt_ini_depende='2000-01-01' where i_pessoas=90 and i_dependentes=277;
+update bethadba.pessoas_fisicas set dt_nascimento='2000-01-01' where i_pessoas=277;
+
+update bethadba.hist_pessoas_fis  set cpf=null where length(cpf)<11;
+--select * from bethadba.pessoas p key join bethadba.pessoas_fisicas pf key join bethadba.hist_pessoas_fis hpf where hpf.cpf is null and p.tipo_pessoa='F';
+update bethadba.pessoas p key join bethadba.pessoas_fisicas pf key join bethadba.hist_pessoas_fis hpf set p.tipo_pessoa='O' where hpf.cpf is null and p.tipo_pessoa='F';
+call bethadba.pg_habilitartriggers('on');
+commit;
+
+
+call bethadba.dbp_conn_gera(2,2022,300);
+update bethadba.pessoas set inscricao_municipal=null where inscricao_municipal=0;
+update bethadba.pessoas set telefone=null where telefone=0;
+update bethadba.pessoas set fax=null where fax=0;
+update bethadba.pessoas set celular=null where celular=0;
+commit;
+
+--verificar se não há datas de historico posteriores a data atual
+-- verificar duplicidade de cpf e cpf inválido
+-- executar arqjob MotivoRescisaoSQL
+
+--colocar prev_federal nas matriculas que nao tiver nada
+call bethadba.pg_habilitartriggers('off');
+update bethadba.hist_funcionarios 
+set prev_federal='S'
+where prev_federal='N' and prev_estadual='N' and fundo_ass='N' and fundo_prev='N'; commit;
+
+
+
+
+
+-- arqjob eventosSQL
+--inicioVigencia = '1900-01-01' // está faltando o dia
+
+
+-- descricao vinculos
+--informar categoria e-social
+
+--verificar tipo_func (funcionarios x vinculos) - tipo B - pensionistas naos sobem nesse arqjob
+update bethadba.vinculos set tipo_func='F' where i_vinculos=10; commit;
+
+
+alter procedure descricaoVinculos()
+begin
+ declare cont integer;
+ set cont=2;
+ ooLoop: for ll as lanctos dynamic scroll cursor for
+ select i_vinculos as w_vinc, descricao as w_desc from bethadba.vinculos where exists (select descricao from bethadba.vinculos group by descricao having count(*)>1 and descricao=w_desc) order by 2 
+ do 
+  message w_vinc||': '||w_desc||' --> '||left(w_desc,30-length('('+string(cont)+')'))+'('+string(cont)+')' to client;
+  update bethadba.vinculos set descricao=left(w_desc,30-length('('+string(cont)+')'))+'('+string(cont)+')' where i_vinculos=w_vinc and exists (select 1 from bethadba.vinculos where descricao=w_desc and i_vinculos<>w_vinc) ;
+  commit;
+  set cont=cont+1;
+ end for;
+end;
+call descricaoVinculos;
+
+
+--cargos com nomes repetidos
+-- select * from bethadba.cargos order by nome, i_cargos
+
+call bethadba.dbp_conn_gera(2,2022,300);
+if exists (select 1 from sys.sysprocedure where creator = (select user_id from sys.sysuserperms where user_name = current user) and proc_name = 'descricaoCargos') then
+	drop procedure descricaoCargos;
+end if;
+create procedure descricaoCargos()
+begin
+ declare cont integer;
+ set cont=  1;
+ ooLoop: for ll as cargos dynamic scroll cursor for
+ select distinct nome as w_nome from bethadba.cargos where w_nome in (select nome from bethadba.cargos group by nome having count(*)>1) order by w_nome asc
+ do 
+   ooLoop: for ll as cargos2 dynamic scroll cursor for
+   select i_cargos as w_cargo2, nome as w_nome2 from bethadba.cargos where w_nome2=w_nome
+   do 
+     message w_cargo2||': '||w_nome2||' --> '||left(w_nome2,100-length('('+string(cont)+')'))+'('+string(cont)+')'  to client;
+     update bethadba.cargos set  nome=left(w_nome2,100-length('('+string(cont)+')'))+'('+string(cont)+')' where i_cargos=w_cargo2;
+     update bethadba.hist_cargos_cadastro set nome=left(w_nome2,100-length('('+string(cont)+')'))+'('+string(cont)+')' where i_cargos=w_cargo2;	
+     commit;
+     set cont=cont+1;
+   end for; 
+     set cont=1;
+ end for;
+end;
+
+call descricaoCargos;
+commit work;
+
+--funcionarios (verificar cargos - alguns não subiram)
+--apagar registro_ocor e refazer a carga
+
+call bethadba.pg_habilitartriggers('off');
+update bethadba.hist_funcionarios set prev_federal='S' where prev_federal='N' and prev_estadual='N' and fundo_ass='N' and fundo_prev='N' and fundo_financ='N';
+call bethadba.pg_habilitartriggers('on');
+commit;
+
+
+--corrigir data das rescisoes
+select dt_admissao, dt_rescisao, (select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios) as competencia,  * 
+from bethadba.rescisoes r key join bethadba.funcionarios f where (select max(i_competencias) from bethadba.dados_calc dc 
+where dc.i_funcionarios=r.i_funcionarios)>dt_rescisao
+
+update bethadba.rescisoes r key join bethadba.funcionarios f 
+set dt_rescisao=string(year((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-'+
+   string(month((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-28'
+where (select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)>dt_rescisao
+
+
+--corrigir data saida hist_cargos
+update bethadba.hist_cargos r key join bethadba.funcionarios f 
+set dt_saida=string(year((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-'+
+   string(month((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-28' 
+where (select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)>dt_saida;
+commit;
+
+
+--vinculos 
+--informar tipo de provimento
+
+
+--configuração de férias
+desmarcar nos parametros  as opções de desconto de faltas sobre as ferias de rescisao e desconto de faltas sobre o 13 salario de rescicao
+
+
+--calculos de rescisao
+--desmarcar opção de desconto de faltas desktop/cloud
+
+--calculo de ferias dt_pgto
+
+
+
+importar script no cloud: 
+0397eb6d-2d61-41e0-babf-60b856eaf032
+3fc2cd3b-be14-4247-841e-6842bb3f46ba
+6be0edf6-5f26-45c0-848c-919fc25b16ff
+f838f539-46f1-4775-84ff-0f99cea9da77
+80d7582f-4cec-4252-89b4-0315c4323531
+
+1. Garantir que o cliente consiga executar as rotinas básicas do sistema com total autonomia:
+
+Cadastro de Matrículas
+
+Cadastro de Pessoas Físicas
+
+Cadastro de Dependentes
+
+Lançamentos de Variáveis
+
+Edição de Variáveis
+
+Lançamento de Afastamentos
+
+Edição de Afastamentos
+
+Gestão do Período Aquisitivo
+
+Cálculo da Folha Processamento Mensal
+
+Cálculo da Folha Processamento Férias
+
+Cálculo da Folha Processamento Rescisão
+
+Cálculo da Folha Processamento Décimo Terceiro
+
+Recálculo de Folha
+
+Fechamento da Folha
+
+Geração de Arquivo de Crédito em Conta
+
+Geração do Arquivo da GFIP
+
+Geração da Integração Contábil
+
+Envio de dados no sistema Prestação de Contas
+
+Envio de dados no sistema Transparência
+
+Envio de dados no sistema eSocial
+
+Envio de dados no sistema Minha Folha
+
+2. Solicitar que o cliente simule as seguintes rotinas:
+
+ Cadastrar uma pessoa física
+ Cadastrar um dependente para a pessoa física cadastrada
+ Cadastrar um cargo
+ Cadastrar uma matrícula com o cargo cadastrado e com a pessoa cadastrada
+ Lançar uma Variável para a matrícula cadastrada
+ Lançar um afastamento para a matrícula cadastrada
+ Calcular uma folha mensal para a matrícula cadastrada
+ Calcular uma folha de rescisão para a matrícula cadastrada
+ Calcular uma folha de férias 
+ 
+ 1. Calcular a folha no Desktop e no Cloud na mesma competência, emitir o "Relatório de Líquido da Folha" em ambos os sistemas e usar essa comparação para demonstrar ao cliente, que todas as matrículas ativas foram migradas e que os líquidos das folhas estão fechando.
+
+2. Utilizar o "Relatório de Líquido da Folha" para também conferir se as informações cadastrais como CPF e Conta Bancária migraram corretamente.
+
+3. Realizar a configuração da integração contábil, nessa situação temos 3 possibilidades:
+
+A entidade possuía integração entre Folha (Desktop) x Contábil (Cloud), nessa situação basta acessar a configuração da integração com o contábil cloud no sistema Folha(Desktop) e fazer a configuração conforme os organogramas que estão selecionados para cada entidade contábil.
+A entidade possuía integração entre Folha (Desktop) x Contábil (Desktop), nessa situação emitir um relatório de organogramas filtrando apenas os que estão em uso atualmente e passar para a contabilidade, solicitando que seja elencado para qual entidade contábil vai cada organograma.
+Implantação de um cliente oriundo de Concorrente, nessa situação após cadastrar os organogramas deve-se passar a relação para a contabilidade definir para qual entidade contábil vai cada organograma.
+5. Verificar se a configuração da RAIS migrou corretamente. Caso seja uma implantação completamente nova, cadastrar a configuração.
+
+6. Verificar se a configuração da DIRF migrou corretamente. Caso seja uma implantação completamente nova, cadastrar a configuração.
+
+7. Verificar se o cliente deseja utilizar o cadastro único para integrar as pessoas físicas cadastradas nos outros sistemas. Vale ressaltar que no sistema da Folha, interessa apenas as pessoas físicas que irão ser usadas para matrículas ou dependentes, caso seja colocado para integrar, estará integrando diversas pessoas físicas.
+
+8. Caso a entidade não seja um ente federativo responsável, preencher o cadastro de entidade informando o ente federativo responsável.
+
+9. Gerar a GFIP junto do cliente e garantir que os valores entre o relatório de encargos e a sefip estejam fechando.
+
+
+
+
+1. Garantir que o sistema esteja com as configurações iguais às realizadas na homologação.
+
+2. Garantir que todos os scripts e relatórios que foram analisados e são de utilização do cliente, estão na base oficial e disponível para uso.
+
+3. Liberar acesso aos usuários.
+
+4. Realizar a migração das fórmulas base de homologação para oficial.
+
+Para auxilio, importar o script [f838f539-46f1-4775-84ff-0f99cea9da77] e seguir as instruções contidas no código. Esse script envia as fórmulas da base de homologação para a oficial, basta apenas executá-lo que as fórmulas serão migradas automaticamente.
+5. Ajustar a descrição retirando o “(NAO_PADRAO) (REVISAR)”.
+
+Para auxilio, importar o script [80d7582f-4cec-4252-89b4-0315c4323531] e seguir as instruções contidas no código. Esse script automatiza o processo de alteração da nomenclatura dos eventos.
+6. Garantir que os eventos de contribuição para previdência no processamento férias, estejam com o
+campo adicional “Contr. Prev. Férias” igual a sim.
+
+7. Preencher a data inicial da configuração de provisão.
+
+8. Realizar a rotina de "Homologação da Folha", para que o sistema de inicio na remodelagem dos períodos aquisitivos e compile os eventos
+
+Caso ocorra algum erro na compilação dos eventos, importar o script [6be0edf6-5f26-45c0-848c-919fc25b16ff] e executá-lo forçar a reordenação dos eventos.
+ 

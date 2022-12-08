@@ -1,0 +1,213 @@
+/* -- Fórmula de Lançamento para receita de  100-Imposto Predial e Territorial Urbano referente Exercício de 2005*/
+%%	w_codigo        ---> Código de referência que está sendo calculado (Imóvel / Econômico / Pedido / Melhoria / etc)
+%%	w_imovel        ---> Código do imóvel no caso de Contribuição de Melhoria
+%%	w_parc_ini      ---> Nº da parcela Inicial 
+%%	w_parc_fin      ---> Nº da parcela Final 
+%%	w_receita       ---> Passa a Receita Principal
+%%	w_ano           ---> Passa o ano que será Calculado
+%%	w_config        ---> Configuração informada na Janela de Calculo
+%%	w_npar          ---> Passa o Número de Parcela a serem geradas, caso não tenha Parâmetros das Parcelas
+%%	w_moeda         ---> Passa o Código da moeda
+%%  w_venc_ini      ---> Vcto Inicial
+%%  w_dias          ---> dias vcto
+%%  w_antecip       ---> Antecipa
+%%  w_simula        ---> Simulado
+%%  w_notifica      ---> Será notificado após a geração
+%%  w_complementa   ---> Complementar
+%%  w_unidade       ---> Unidade
+%%  w_reparc        ---> Se é reparcelamento de débitos ou não
+
+DECLARE w_vm2t          NUMERIC(15,4);
+DECLARE w_vm2c          NUMERIC(15,4);
+DECLARE w_vvt           NUMERIC(15,4);
+DECLARE w_vvc           NUMERIC(15,4);
+DECLARE w_vvi           NUMERIC(15,4);
+DECLARE w_aliquota      NUMERIC(15,4);
+DECLARE w_iptu          NUMERIC(15,4);
+DECLARE w_area_terr     NUMERIC(15,4);
+DECLARE w_area_const    NUMERIC(15,4);
+DECLARE w_bairro        INTEGER; 
+DECLARE w_estrutura     INTEGER;
+DECLARE w_ocupacao      INTEGER; 
+DECLARE w_isencao_imp   INTEGER;
+DECLARE w_isencao_iptu  INTEGER;     
+
+                            
+
+% BUSCANDO O CÓDIGO DO BAIRRO DO IMÓVEL
+
+SELECT i_bairros INTO w_bairro 
+FROM bethadba.imoveis 
+WHERE imoveis.i_imoveis = w_codigo;
+
+% =================================
+% ACHANDO O VM2 DO TERRENO         
+
+% UNIDADE 0 - TERRITORIAL, 1 - PREDIAL
+SELECT unidade INTO w_unidade 
+FROM bethadba.imoveis 
+WHERE imoveis.i_imoveis = w_codigo;
+    
+IF w_bairro = 1 THEN
+  SET w_vm2t = 185;
+ELSEIF w_bairro IN(51) THEN
+  SET w_vm2t = 480.00;
+ 
+ELSEIF w_bairro IN (19) THEN %%imovel rural
+  SET w_vm2t = 0.01;     
+END IF; 
+
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,10099,w_vm2t)); 
+
+                           
+IF w_bairro = 1 THEN
+  SET w_vm2t = 185;
+ELSEIF w_bairro IN(2,3,4,5,8,9,10,11,12,13,14,16,20,21,22,23,24,25,26,30,37,41,44,45) THEN
+  SET w_vm2t = 120.00;
+ELSEIF w_bairro IN(6,7,15,17,33,34) THEN
+  SET w_vm2t = 10.00; 
+ELSEIF w_bairro IN (19) THEN %%imovel rural
+  SET w_vm2t = 0.01;     
+END IF; 
+
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,10099,w_vm2t));                              
+
+% =================================    
+% RETORNANDO ÁREA DO TERRENO DO BCI 
+
+
+
+SET w_area_terr = isnull((dbf_fc_retbci_valor(w_codigo,6299,w_ano)),0); 
+     IF w_area_terr = '' THEN
+         CALL dbp_raiserror('','NÃO GERA LANÇAMENTO DO IPTU, FAVOR INFORMAR A AREA DO IMOVEL NO BCI 6299.');
+     END IF; 
+	 
+
+% ================================= 
+% ACHANDO O VALOR VENAL DO TERRENO
+
+SET w_vvt = w_area_terr * w_vm2t;
+                              
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,12099,w_vvt));                              
+
+% =================================     
+% VERIFICANDO A OCUPAÇÃO DO IMÓVEL
+
+%%SET w_ocupacao = dbf_fc_existe_opc_bci(w_codigo,2600);  
+SET w_ocupacao =(SELECT i_item FROM bethadba.opcoes_bci WHERE i_item BETWEEN 2600 AND 2699  
+              AND i_imoveis  = w_codigo AND ano = dbf_ano_base(w_codigo,w_ano,2600,'opcoes_bci',NULL));
+IF(w_tipo IS NULL) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A OCUPAÇÂO NO BCI 2600');
+END IF;  
+
+                                    
+% ================================= 
+% VERIFICANDO A ESTRUTURA DA CONSTRUÇÃO
+
+%%SET w_estrutura = dbf_fc_existe_opc_bci(w_codigo,7800);  
+SET w_estrutura =(SELECT i_item FROM bethadba.opcoes_bci WHERE i_item BETWEEN 7800 AND 7899  
+              AND i_imoveis  = w_codigo AND ano = dbf_ano_base(w_codigo,w_ano,7800,'opcoes_bci',NULL));
+IF(w_tipo IS NULL) THEN
+ CALL dbp_raiserror('FAVOR INFORMAR A ESTRUTURA DO IMÓVEL NO BCI 7800');
+END IF;  
+ 
+
+
+
+
+ 
+% ================================= 
+% ACHANDO O VM2 DA CONSTRUÇÃO   
+
+IF w_bairro = 1 THEN  
+  IF w_estrutura = 7811 THEN          % ALVENARIA
+      SET w_vm2c = 150;      
+  ELSEIF w_estrutura = 7820 THEN      % MADEIRA
+      SET w_vm2c = 120;
+  ELSE
+      SET w_vm2c = 100;               %% OUTROS
+  END IF;
+  
+ELSEIF w_bairro IN(2,3,4,5,8,9,10,11,12,13,14,16,20,21,22,23,24,25,26,30,37,41,44,45,51) THEN
+  IF w_estrutura = 7811 THEN          % ALVENARIA
+      SET w_vm2c = 1040;           
+  ELSEIF w_estrutura = 7820 THEN      % MADEIRA
+      SET w_vm2c = 80;
+  ELSE
+      SET w_vm2c = 60;                %% OUTROS
+  END IF;
+
+ELSEIF w_bairro IN(6,7,15,33,34) THEN
+  IF w_estrutura = 7811 THEN          % ALVENARIA
+      SET w_vm2c = 50;      
+  ELSEIF w_estrutura = 7820 THEN      % MADEIRA
+      SET w_vm2c = 40;
+  ELSE
+      SET w_vm2c = 30;                %% OUTROS
+  END IF;
+     
+END IF; 
+
+
+
+
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,11099,w_vm2c));
+  
+% ================================= 
+% RETORNANDO ÁREA CONTRUÍDA DA UNIDADE
+
+%%SET w_area_const = dbf_fc_retbci_valor(w_codigo,6499);
+SET w_area_const = isnull((dbf_fc_retbci_valor(w_codigo,6499,w_ano)),0); 
+     IF w_area_const = '' THEN
+         CALL dbp_raiserror('','NÃO GERA LANÇAMENTO DO IPTU, FAVOR INFORMAR A AREA DA CONSTRUÇÃO NO BCI 6499.');
+     END IF; 
+	 
+
+% ================================= 
+% ACHANDO O VALOR VENAL DA CONSTRUÇÃO
+
+SET w_vvc = w_area_const * w_vm2c;
+                                                      
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,13099,w_vvc));
+                                                      
+% ================================   
+% ACHANDO O VALOR VENAL DO IMÓVEL
+
+SET w_vvi = w_vvt + isnull(w_vvc,0);
+                                                   
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,14099,w_vvi));
+                                                   
+% ================================   
+% ACHANDO A ALÍQUOTA 
+IF w_unidade=0 THEN
+   SET w_aliquota = 0.02;
+ELSE
+   SET w_aliquota = 0.005;
+END IF;
+
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,15099,(w_aliquota * 100)));
+
+% ================================   
+% ACHANDO O VALOR DO IPTU
+
+SET w_iptu = w_vvi * w_aliquota;
+
+SET ret=(dbf_fc_cria_bci_valor(w_codigo,16099,w_iptu));
+
+% ================================  
+% VERIFICANDO A ISENÇÃO DO IPTU
+
+SET w_isencao_imp = dbf_fc_existe_opc_bci(w_codigo,4000);  
+
+IF w_isencao_imp IN(4022,4030) THEN
+  SET w_isencao_iptu = 1
+END IF;
+
+% ================================  
+% CRIANDO AS RECEITAS
+IF w_bairro=19 THEN
+  SET ret = (dbf_fc_cria_rec(101,0.01,w_config,1));  %% calculo venal rural
+ELSE  
+  SET ret = (dbf_fc_cria_rec(101,w_iptu,w_config,w_isencao_iptu));  
+  SET ret = (dbf_fc_cria_desc_imo()); 
+END IF;

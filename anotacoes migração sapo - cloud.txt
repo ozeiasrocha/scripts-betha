@@ -1,0 +1,138 @@
+tecb-- registro_ocor - situação:  (1 - Inconsistência, 2 - advertência, 3 - Sucesso, 4 - Pendente de retorno)
+-- registro_ocor - resolvido: (1 - Não, 2 - Sim)
+-- lotes - status: (1 - AGUARDANDO_EXECUCAO, 2 - EXECUTANDO, 3 - EXECUTADO, 4 - EXECUTADO_PARCIALMENTE, 5 - ERRO)
+
+
+Migração Planejamento
+
+-- ajustar o campo natureza juridica do cadastro de tipos de administração
+
+
+1) Organogramas
+
+2) Arqjob - Migração Betha Planejamento, __Iniciar Migracao
+
+--betha sapo/ConfiguracaoMigracao
+	habilitar ___
+	definir: gaEnumSuperavit ?
+	descrição de recursos
+	@gaDuplicidadeCredor
+	
+Execução: token <--> cnpj
+    
+para consulta concorrente na base durante a migração no sybase: SET TEMPORARY OPTION isolation_level = 0;
+
+Precisa fazer a Sançao da LOA (arqjob não faz)
+
+Retenções? pode travar a migração
+
+Excluir restos de anos anteriores?
+
+Tem que ter naturezas no primeiro exercício do PPA:
+
+execute os arqjobs a seguir (__iniciar migração):
+exeArqjoblet("1/Migração Betha SAPO/ConfiguracoesNaturezaDespesasSQL");
+exeArqjoblet("333/Migração Betha Planejamento/ParametrosOrcamentariosSQL");
+exeArqjoblet("1/Migração Betha SAPO/NaturezaDespesasSQL");
+** desmarque os outros todos
+
+ir no contabil cloud exercício xxxx: administrando, naturezas, despesas - colocar portaria da despesa xxxx em uso
+
+antes de executar a migração: 
+* migrações no inicio do ano tem que ver a receita/despesa da LOA (no sapo), devido a empenhos anteriores e ordens anteriores
+* desmembramento de arrecadaçoes do sapo (naturezas de desmembramento 60 25 15), tendo o desmembramento as receitas serao criadas corretamente
+
+
+tabela controle_migracao_registro_ocor: (1 - resolvido, 2- nao resolvido) está na descricao dos campos da tabela
+
+
+Migracao contabilidade
+
+sancionar LOA
+ir em utilitarios, cloud:
+   * organogramas
+   * bloqueios
+   
+
+arqjob: __inicia migração
+comentar os arqjobs da tesouraria
+comentar acima até abaixo de contas contabeis
+
+
+Ajustar o script do SICONFI onde dem SIM - AM colocar Gerencial (localizar Destinação de recurso ou SIM-AM) usei o script do paraná e  salvei como MG
+executar o script
+
+   
+   
+   tesouraria - informar parametros de implantação (data)
+   
+caso queira testar o arqjob comente a linha q envia para o cloud
+// exeArqjoblet("103/Migração Betha/montar_lote"); 
+
+---- migracao camara
+realizar a configuração cloud no planejamento
+verificar duplicidade de organogramas 
+
+editar configuracoesMigracao
+
+--sapo
+sancionar LOA
+
+repasses sao lancados como receita extra
+limpar inscricao estadual - deu erro no estado ao subir credores (juridicas)
+checar credores antes de subir empenhos
+mudar paramentro de retencoes para (no pagamento) antes de migrar pagamentos
+
+
+--verificar erro nos eventosDocumentos
+SELECT ocor.tipo_registro, ocor.id_gerado, ocor.mensagem_ajuda, ocor.mensagem_erro, ocor.json_enviado
+FROM bethadba.controle_migracao_registro reg
+JOIN bethadba.controle_migracao_registro_ocor ocor,
+WHERE reg.id_gerado IS NULL
+and ocor.i_sequencial = (SELECT max(aux.i_sequencial) FROM bethadba.controle_migracao_registro_ocor aux WHERE aux.hash_chave_dsk = reg.hash_chave_dsk)
+and reg.tipo_registro = 'eventosDocumentos'
+
+
+
+-- migracao PMTK 
+
+select * from bethadba.hist_tipos_adm h1 left join bethadba.hist_tipos_adm h2 
+on h1.i_tipos_adm=h2.i_tipos_adm and h2.i_naturezas is null
+where   h1.i_competencias='2022-08-01' and h2.i_competencias='2016-07-01';
+
+update bethadba.hist_tipos_adm h1 left join bethadba.hist_tipos_adm h2 
+on h1.i_tipos_adm=h2.i_tipos_adm and h2.i_naturezas is null
+set h2.i_naturezas=h1.i_naturezas
+where   h1.i_competencias='2022-08-01' and h2.i_competencias='2016-07-01';
+commit;
+
+
+
+--- migração CM Rodrigues
+// ConfiguracaoMigracao
+
+// modelo Acre
+vetor("tipo",     1,2);
+vetor("descricao",1,"Grupo");
+vetor("digitos",  1,1);
+
+vetor("tipo",     2,5);
+vetor("descricao",2,"Especificação TCE");
+vetor("digitos",  2,2);
+
+vetor("tipo",     3,6);
+vetor("descricao",3,"Detalhamento do Recurso");
+vetor("digitos",  3,2);
+
+@gaEnumRecSuperavit = 'true';
+@giDuplicidadeCredor = 2;
+
+//Planejamento, LOA, utilitarios, cloud: organogramas, alimenta parametros cloud,  atualiza tipos de dedução (somente prefeitura)
+
+//SAPO, Financeiro, utilitarios, cloud: organogramas, bloqueios/desbloqueios
+
+//verificar inconsistencias 
+select * from bethadba.controle_migracao_registro_ocor where id_gerado is null
+
+
+

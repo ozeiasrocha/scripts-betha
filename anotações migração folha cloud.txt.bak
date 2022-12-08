@@ -1,0 +1,188 @@
+--imagens_docs, registros_integ, versoes_arqs, arqjoblets, relatorios, controle_migracao
+-- registro_ocor - 
+situação :  (1 - Inconsistência, 2 - advertência, 3 - Sucesso, 4 - Pendente de retorno)
+resolvido:  (1 - Não, 2 - Sim)
+
+-- lotes - status: (1 - AGUARDANDO_EXECUCAO, 2 - EXECUTANDO, 3 - EXECUTADO, 4 - EXECUTADO_PARCIALMENTE, 5 - ERRO)
+
+
+-- logradouros
+ajustar dbp_conn_gera (ajusteLogardouros)
+
+--entidade - erro no endereço
+ajustar cadastro da entidade - informacoes complementares (tipo de entidade, responsvel eSocial)
+tipo de administracao (natureza juridica, valor subteto)
+
+
+-- tipos de afastamentos com descricao duplicada 
+delete bethadba.tipos_afast where i_tipos_afast not in (select i_tipos_afast from bethadba.afastamentos)
+and descricao in (select descricao from  (select descricao, count(*) x from bethadba.tipos_afast group by descricao having x>1) x)
+and i_tipos_afast not in (select i_tipos_afast from bethadba.canc_ferias_afast)
+and i_tipos_afast not in (select i_tipos_afast from bethadba.motivos_apos);
+
+alter procedure descricaoTiposAfast()
+begin
+ ooLoop: for ll as lanctos dynamic scroll cursor for
+ select descricao as w_desc, count(*) x from bethadba.tipos_afast group by descricao having x>1
+ do 
+  message 'tipo afast: '||w_desc to client;
+  update bethadba.tipos_afast set descricao=descricao+'_2' where descricao=w_desc and i_tipos_afast=(select max(i_tipos_afast) from bethadba.tipos_afast where descricao=w_desc);
+ end for;
+end;
+call descricaoTiposAfast;
+
+-- informar categoria e-social nos motivos de rescisoes/aposentadorias
+-- informar categoria do motivo de alteracao salarial
+
+--atos sem natureza
+call bethadba.dbp_conn_gera(2,2022,300);
+call bethadba.pg_habilitartriggers('off');
+update  bethadba.atos set i_natureza_texto_juridico=1;commit;
+call bethadba.pg_habilitartriggers('on');
+
+--organograma (descricao config. no maximo 30 caracteres)
+
+
+
+-- pessoas fisicas (limpar ocorrencias duplica pessoas)
+-- preencher data de nascimento 
+
+call bethadba.dbp_conn_gera(2,2022,300);
+update bethadba.pessoas_fisicas set rg=null where rg=0 and orgao_emis_rg is null;
+update bethadba.pessoas_fisicas pf left join bethadba.dependentes d on pf.i_pessoas=d.i_dependentes set dt_nascimento='2020-01-01' where pf.dt_nascimento is null and pf.i_pessoas in (select i_dependentes from bethadba.dependentes);
+update bethadba.pessoas_fisicas set dt_nascimento='2000-01-01' where dt_nascimento is null;
+update bethadba.hist_pessoas_fis set rg=null where rg='0';
+commit;
+call bethadba.pg_habilitartriggers('off');
+update bethadba.dependentes set dt_ini_depende='2000-01-01' where i_pessoas=90 and i_dependentes=277;
+update bethadba.pessoas_fisicas set dt_nascimento='2000-01-01' where i_pessoas=277;
+
+update bethadba.hist_pessoas_fis  set cpf=null where length(cpf)<11;
+--select * from bethadba.pessoas p key join bethadba.pessoas_fisicas pf key join bethadba.hist_pessoas_fis hpf where hpf.cpf is null and p.tipo_pessoa='F';
+update bethadba.pessoas p key join bethadba.pessoas_fisicas pf key join bethadba.hist_pessoas_fis hpf set p.tipo_pessoa='O' where hpf.cpf is null and p.tipo_pessoa='F';
+call bethadba.pg_habilitartriggers('on');
+commit;
+
+
+call bethadba.dbp_conn_gera(2,2022,300);
+update bethadba.pessoas set inscricao_municipal=null where inscricao_municipal=0;
+update bethadba.pessoas set telefone=null where telefone=0;
+update bethadba.pessoas set fax=null where fax=0;
+update bethadba.pessoas set celular=null where celular=0;
+commit;
+
+--verificar se não há datas de historico posteriores a data atual
+-- verificar duplicidade de cpf e cpf inválido
+-- executar arqjob MotivoRescisaoSQL
+
+--colocar prev_federal nas matriculas que nao tiver nada
+call bethadba.pg_habilitartriggers('off');
+update bethadba.hist_funcionarios 
+set prev_federal='S'
+where prev_federal='N' and prev_estadual='N' and fundo_ass='N' and fundo_prev='N'; commit;
+
+
+
+
+
+-- arqjob eventosSQL
+--inicioVigencia = '1900-01-01' // está faltando o dia
+
+
+-- descricao vinculos
+--informar categoria e-social
+
+--verificar tipo_func (funcionarios x vinculos) - tipo B - pensionistas naos sobem nesse arqjob
+update bethadba.vinculos set tipo_func='F' where i_vinculos=10; commit;
+
+
+alter procedure descricaoVinculos()
+begin
+ declare cont integer;
+ set cont=2;
+ ooLoop: for ll as lanctos dynamic scroll cursor for
+ select i_vinculos as w_vinc, descricao as w_desc from bethadba.vinculos where exists (select descricao from bethadba.vinculos group by descricao having count(*)>1 and descricao=w_desc) order by 2 
+ do 
+  message w_vinc||': '||w_desc||' --> '||left(w_desc,30-length('('+string(cont)+')'))+'('+string(cont)+')' to client;
+  update bethadba.vinculos set descricao=left(w_desc,30-length('('+string(cont)+')'))+'('+string(cont)+')' where i_vinculos=w_vinc and exists (select 1 from bethadba.vinculos where descricao=w_desc and i_vinculos<>w_vinc) ;
+  commit;
+  set cont=cont+1;
+ end for;
+end;
+call descricaoVinculos;
+
+
+--cargos com nomes repetidos
+-- select * from bethadba.cargos order by nome, i_cargos
+
+call bethadba.dbp_conn_gera(2,2022,300);
+if exists (select 1 from sys.sysprocedure where creator = (select user_id from sys.sysuserperms where user_name = current user) and proc_name = 'descricaoCargos') then
+	drop procedure descricaoCargos;
+end if;
+create procedure descricaoCargos()
+begin
+ declare cont integer;
+ set cont=  1;
+ ooLoop: for ll as cargos dynamic scroll cursor for
+ select distinct nome as w_nome from bethadba.cargos where w_nome in (select nome from bethadba.cargos group by nome having count(*)>1) order by w_nome asc
+ do 
+   ooLoop: for ll as cargos2 dynamic scroll cursor for
+   select i_cargos as w_cargo2, nome as w_nome2 from bethadba.cargos where w_nome2=w_nome
+   do 
+     message w_cargo2||': '||w_nome2||' --> '||left(w_nome2,100-length('('+string(cont)+')'))+'('+string(cont)+')'  to client;
+     update bethadba.cargos set  nome=left(w_nome2,100-length('('+string(cont)+')'))+'('+string(cont)+')' where i_cargos=w_cargo2;
+     update bethadba.hist_cargos_cadastro set nome=left(w_nome2,100-length('('+string(cont)+')'))+'('+string(cont)+')' where i_cargos=w_cargo2;	
+     commit;
+     set cont=cont+1;
+   end for; 
+     set cont=1;
+ end for;
+end;
+
+call descricaoCargos;
+commit work;
+
+--funcionarios (verificar cargos - alguns não subiram)
+--apagar registro_ocor e refazer a carga
+
+call bethadba.pg_habilitartriggers('off');
+update bethadba.hist_funcionarios set prev_federal='S' where prev_federal='N' and prev_estadual='N' and fundo_ass='N' and fundo_prev='N' and fundo_financ='N';
+call bethadba.pg_habilitartriggers('on');
+commit;
+
+
+--corrigir data das rescisoes
+select dt_admissao, dt_rescisao, (select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios) as competencia,  * 
+from bethadba.rescisoes r key join bethadba.funcionarios f where (select max(i_competencias) from bethadba.dados_calc dc 
+where dc.i_funcionarios=r.i_funcionarios)>dt_rescisao
+
+update bethadba.rescisoes r key join bethadba.funcionarios f 
+set dt_rescisao=string(year((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-'+
+   string(month((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-28'
+where (select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)>dt_rescisao
+
+
+--corrigir data saida hist_cargos
+update bethadba.hist_cargos r key join bethadba.funcionarios f 
+set dt_saida=string(year((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-'+
+   string(month((select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)))+'-28' 
+where (select max(i_competencias) from bethadba.dados_calc dc where dc.i_funcionarios=r.i_funcionarios)>dt_saida;
+commit;
+
+
+--vinculos 
+--informar tipo de provimento
+
+
+--configuração de férias
+desmarcar nos parametros  as opções de desconto de faltas sobre as ferias de rescisao e desconto de faltas sobre o 13 salario de rescicao
+
+
+--calculos de rescisao
+--desmarcar opção de desconto de faltas desktop/cloud
+
+--calculo de ferias dt_pgto
+
+
+
+

@@ -1,0 +1,8 @@
+backup /a "Sapo" D:\BACKUP_BETHA\SAPO admin 7dP4Y83fX0cEe8_4-nLtSwM43VswhTemdCgGeQ== /BLS /ZOHR "Betha_Agendador_Backup_Betha_Sapo" NNN
+       
+	   compactador: /ZR  compacta 7z  /ZOHR O - delete original H - adiciona data e hora
+	   tipo de backup: /BLS backup completo /LS backup incremental
+	   validação: /V executa o validador
+	   NNN -> criar subpasta para cada dia, cada semana, cada mes (mudar para S)
+	   
+	   
